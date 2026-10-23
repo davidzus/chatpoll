@@ -1,26 +1,26 @@
 {
 	"schemaVersion": 1,
-	"id": "chatvote",
+	"id": "chatpoll",
 	"version": "${version}",
-	"name": "chatvote",
-	"description": "This is an example description! Tell everyone what your mod is about!",
+	"name": "chatpoll",
+	"description": "Create polls and vote on them right in chat.",
 	"authors": [
-		"Me!"
+		"Davidzus"
 	],
 	"contact": {
-		"homepage": "https://fabricmc.net/",
-		"sources": "https://github.com/FabricMC/fabric-example-mod"
+		"sources": "https://github.com/davidzus/chatpoll",
+		"issues": "https://github.com/davidzus/chatpoll/issues"
 	},
-	"license": "CC0-1.0",
-	"icon": "assets/chatvote/icon.png",
+	"license": "MIT",
+	"icon": "assets/chatpoll/icon.png",
 	"environment": "*",
 	"entrypoints": {
 		"main": [
-			"com.zusworks.Chatvote"
+			"com.zusworks.Chatpoll"
 		]
 	},
 	"depends": {
-		"fabricloader": ">=0.19.5",
+		"fabricloader": ">=0.19.3",
 		"minecraft": "~26.3",
 		"java": ">=25",
 		"fabric-api": "*"
