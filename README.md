@@ -12,7 +12,7 @@ Every command supports tab completion for poll names and options.
 
 ### Managing polls
 
-- The `/poll` commands need Operator permissions (OP Level 2).
+- By default, the `/poll` commands need Operator permissions (OP Level 2). Access can be changed per subcommand, see [Permissions](#permissions).
 
 | Command | Description |
 |---------|-------------|
@@ -44,6 +44,22 @@ Every command supports tab completion for poll names and options.
 /poll results "Next map" true
 /poll end "Next map"
 ```
+
+## Permissions
+
+chatpoll supports permission mods such as [LuckPerms](https://luckperms.net/) through the [fabric-permissions-api](https://github.com/lucko/fabric-permissions-api), which is bundled with the mod. If no permission mod is installed, the default OP level is used instead.
+
+| Permission | Command | Default |
+|------------|---------|---------|
+| `chatpoll.command.poll.create` | `/poll create` | OP Level 2 |
+| `chatpoll.command.poll.add` | `/poll add` | OP Level 2 |
+| `chatpoll.command.poll.start` | `/poll start` | OP Level 2 |
+| `chatpoll.command.poll.end` | `/poll end` | OP Level 2 |
+| `chatpoll.command.poll.delete` | `/poll delete` | OP Level 2 |
+| `chatpoll.command.poll.list` | `/poll list` | OP Level 2 |
+| `chatpoll.command.poll.results` | `/poll results` | OP Level 2 |
+| `chatpoll.command.poll.results.broadcast` | `/poll results <name> <broadcast>` | OP Level 2 |
+| `chatpoll.command.vote` | `/vote` | Everyone |
 
 ## Limitations
 

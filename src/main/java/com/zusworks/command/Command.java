@@ -6,6 +6,7 @@ import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.suggestion.SuggestionProvider;
 import com.zusworks.vote.PollEntity;
 import com.zusworks.vote.PollManager;
+import me.lucko.fabric.api.permissions.v0.Permissions;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
@@ -13,12 +14,13 @@ import net.minecraft.commands.Commands;
 import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
-import net.minecraft.server.permissions.Permissions;
+import net.minecraft.server.permissions.PermissionLevel;
 import net.minecraft.world.entity.player.Player;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Predicate;
 
 public class Command {
 
@@ -40,21 +42,42 @@ public class Command {
             pollManager.getPollOptions(StringArgumentType.getString(context, "Poll Name")), builder
     ));
 
+    private static final String PERMISSION_PREFIX = "chatpoll.command.";
+    private static final String[] POLL_SUBCOMMANDS = {"create", "list", "start", "add", "end", "delete", "results"};
+
+    private static Predicate<CommandSourceStack> poll(String subcommand) {
+        return Permissions.require(PERMISSION_PREFIX + "poll." + subcommand, PermissionLevel.GAMEMASTERS);
+    }
+
+    private static boolean canUseAnyPollCommand(CommandSourceStack source) {
+        for (String subcommand : POLL_SUBCOMMANDS) {
+            if (poll(subcommand).test(source)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public static void registerCommands() {
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
             dispatcher.register(
                     Commands.literal("poll")
-                            .requires(source -> source.permissions().hasPermission(Permissions.COMMANDS_MODERATOR))
+                            .requires(Command::canUseAnyPollCommand)
                             .then(Commands.literal("create")
+                                    .requires(poll("create"))
                                     .then(Commands.argument("Poll Name", StringArgumentType.string()).executes(Command::createPoll))
                             )
-                            .then(Commands.literal("list").executes(Command::listPolls))
+                            .then(Commands.literal("list")
+                                    .requires(poll("list"))
+                                    .executes(Command::listPolls))
                             .then(Commands.literal("start")
+                                    .requires(poll("start"))
                                     .then(Commands.argument("Poll Name", StringArgumentType.string())
                                             .suggests(POLL_NAME_SUGGESTIONS)
                                             .executes(Command::startPoll))
                             )
                             .then(Commands.literal("add")
+                                    .requires(poll("add"))
                                     .then(Commands.argument("Poll Name", StringArgumentType.string())
                                             .suggests(POLL_NAME_SUGGESTIONS)
                                             .then(Commands.argument("Option", StringArgumentType.greedyString())
@@ -62,29 +85,38 @@ public class Command {
                                             )
                                     )
                             )
-                            .then(Commands.literal("end").then(Commands.argument("Poll Name", StringArgumentType.string())
-                                    .suggests(ACTIVE_POLL_NAME_SUGGESTIONS)
-                                    .executes(Command::endPoll)
+                            .then(Commands.literal("end")
+                                    .requires(poll("end"))
+                                    .then(Commands.argument("Poll Name", StringArgumentType.string())
+                                            .suggests(ACTIVE_POLL_NAME_SUGGESTIONS)
+                                            .executes(Command::endPoll)
                             ))
-                            .then(Commands.literal("delete").then(Commands.argument("Poll Name", StringArgumentType.string())
-                                    .suggests(INACTIVE_POLL_NAME_SUGGESTIONS)
-                                    .executes(Command::deletePoll)
+                            .then(Commands.literal("delete")
+                                    .requires(poll("delete"))
+                                    .then(Commands.argument("Poll Name", StringArgumentType.string())
+                                            .suggests(INACTIVE_POLL_NAME_SUGGESTIONS)
+                                            .executes(Command::deletePoll)
                             ))
-                            .then(Commands.literal("results").then(Commands.argument("Poll Name", StringArgumentType.string())
-                                    .suggests(POLL_NAME_SUGGESTIONS)
-                                    .executes(context -> showResults(context, false))
+                            .then(Commands.literal("results")
+                                    .requires(poll("results"))
+                                    .then(Commands.argument("Poll Name", StringArgumentType.string())
+                                            .suggests(POLL_NAME_SUGGESTIONS)
+                                            .executes(context -> showResults(context, false))
                                             .then(Commands.argument("Broadcast", BoolArgumentType.bool())
+                                                    .requires(poll("results.broadcast"))
                                                     .executes(context -> showResults(context, BoolArgumentType.getBool(context, "Broadcast")))
                                     )))
             );
 
-            dispatcher.register(Commands.literal("vote").then(Commands.argument("Poll Name", StringArgumentType.string())
-                    .suggests(ACTIVE_POLL_NAME_SUGGESTIONS)
-                    .then(Commands.argument("Option", StringArgumentType.greedyString())
-                            .suggests(VOTE_OPTION_SUGGESTIONS)
-                            .executes(Command::vote)
-                    )
-            ));
+            dispatcher.register(Commands.literal("vote")
+                    .requires(Permissions.require(PERMISSION_PREFIX + "vote", PermissionLevel.ALL))
+                    .then(Commands.argument("Poll Name", StringArgumentType.string())
+                            .suggests(ACTIVE_POLL_NAME_SUGGESTIONS)
+                            .then(Commands.argument("Option", StringArgumentType.greedyString())
+                                    .suggests(VOTE_OPTION_SUGGESTIONS)
+                                    .executes(Command::vote)
+                            )
+                    ));
         });
     }
 
