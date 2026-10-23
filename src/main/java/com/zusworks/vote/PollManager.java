@@ -4,13 +4,14 @@ import net.minecraft.world.entity.player.Player;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 public class PollManager {
 
     private final List<PollEntity> polls = new ArrayList<>();
 
-    public void createPoll(String pollName) {
-        PollEntity poll = new PollEntity(pollName);
+    public void createPoll(String displayName, String pollName) {
+        PollEntity poll = new PollEntity(displayName, pollName);
         polls.add(poll);
     }
 
@@ -51,16 +52,13 @@ public class PollManager {
     }
 
     public PollEntity getPollByName(String voteName) {
+        String pollName = voteName.toLowerCase(Locale.ROOT);
         for (PollEntity poll : polls) {
-            if (poll.getName().equals(voteName)) {
+            if (poll.getName().equals(pollName)) {
                 return poll;
             }
         }
         return null;
-    }
-
-    public List<String> getPollOptions(PollEntity poll) {
-        return poll.getOptions();
     }
 
     public List<String> getPollOptions(String pollName) {
@@ -81,6 +79,16 @@ public class PollManager {
 
     public boolean hasVoted(PollEntity poll, Player player) {
         return poll.hasVoted(player.getUUID());
+    }
+
+    public List<PollEntity> getUnvotedActivePolls(Player player) {
+        List<PollEntity> unvotedPolls = new ArrayList<>();
+        for (PollEntity poll : polls) {
+            if (poll.isActive() && !poll.hasVoted(player.getUUID())) {
+                unvotedPolls.add(poll);
+            }
+        }
+        return unvotedPolls;
     }
 
     public void endPoll(PollEntity poll) {

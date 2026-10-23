@@ -12,13 +12,17 @@ import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.SharedSuggestionProvider;
+import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.HoverEvent;
 import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.permissions.PermissionLevel;
 import net.minecraft.world.entity.player.Player;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.function.Predicate;
 
@@ -110,8 +114,10 @@ public class Command {
 
             dispatcher.register(Commands.literal("vote")
                     .requires(Permissions.require(PERMISSION_PREFIX + "vote", PermissionLevel.ALL))
+                    .executes(Command::listVotablePolls)
                     .then(Commands.argument("Poll Name", StringArgumentType.string())
                             .suggests(ACTIVE_POLL_NAME_SUGGESTIONS)
+                            .executes(Command::listVoteOptions)
                             .then(Commands.argument("Option", StringArgumentType.greedyString())
                                     .suggests(VOTE_OPTION_SUGGESTIONS)
                                     .executes(Command::vote)
@@ -122,13 +128,15 @@ public class Command {
 
     private static int createPoll(CommandContext<CommandSourceStack> context) {
         String pollNameValue = StringArgumentType.getString(context, "Poll Name");
+        String pollName = pollNameValue.toLowerCase(Locale.ROOT);
 
-        if (pollManager.getPollByName(pollNameValue) != null) {
-            sendError(context.getSource(), "A poll named ", pollNameValue, " already exists");
+        PollEntity existingPoll = pollManager.getPollByName(pollName);
+        if (existingPoll != null) {
+            sendError(context.getSource(), "A poll named ", existingPoll.getDisplayName(), " already exists");
             return 0;
         }
 
-        pollManager.createPoll(pollNameValue);
+        pollManager.createPoll(pollNameValue, pollName);
         sendInfo(context.getSource(), "Created poll ", pollNameValue);
         return 1;
     }
@@ -154,7 +162,7 @@ public class Command {
                 status = Component.literal("not started").withStyle(ChatFormatting.GRAY);
             }
             source.sendSuccess(() -> Component.literal(" • ").withStyle(ChatFormatting.DARK_GRAY)
-                    .append(Component.literal(pollName).withStyle(ChatFormatting.AQUA))
+                    .append(Component.literal(poll.getDisplayName()).withStyle(ChatFormatting.AQUA))
                     .append(Component.literal(" (").withStyle(ChatFormatting.DARK_GRAY))
                     .append(status)
                     .append(Component.literal(")").withStyle(ChatFormatting.DARK_GRAY)), false);
@@ -173,23 +181,40 @@ public class Command {
         }
 
         if (poll.isActive()) {
-            sendError(source, "Poll ", pollNameValue, " is already running");
+            sendError(source, "Poll ", poll.getDisplayName(), " is already running");
             return 0;
         }
 
         if (poll.hasEnded()) {
-            sendError(source, "Poll ", pollNameValue, " has already ended");
+            sendError(source, "Poll ", poll.getDisplayName(), " has already ended");
             return 0;
         }
 
         if (poll.getOptions().isEmpty()) {
-            sendError(source, "Poll ", pollNameValue, " has no options yet");
+            sendError(source, "Poll ", poll.getDisplayName(), " has no options yet");
             return 0;
         }
 
         pollManager.startVote(poll);
-        sendInfo(source, "Started poll ", pollNameValue);
+        sendInfo(source, "Started poll ", poll.getDisplayName());
+        broadcastPollStart(source, poll);
         return 1;
+    }
+
+    private static void broadcastPollStart(CommandSourceStack source, PollEntity poll) {
+        String optionsCommand = "/vote " + StringArgumentType.escapeIfRequired(poll.getName());
+        Component message = prefix()
+                .append(Component.literal("A new poll has started: ").withStyle(ChatFormatting.YELLOW))
+                .append(Component.literal(poll.getDisplayName()).withStyle(style -> style
+                        .withColor(ChatFormatting.AQUA)
+                        .withBold(true)
+                        .withClickEvent(new ClickEvent.RunCommand(optionsCommand))
+                        .withHoverEvent(new HoverEvent.ShowText(Component.literal("Click to see the options")))))
+                .append(Component.literal(" (" + String.join(", ", poll.getOptions()) + ")").withStyle(ChatFormatting.GRAY))
+                .append(Component.literal(" Use ").withStyle(ChatFormatting.YELLOW))
+                .append(Component.literal(optionsCommand).withStyle(ChatFormatting.AQUA))
+                .append(Component.literal(" to vote!").withStyle(ChatFormatting.YELLOW));
+        source.getServer().getPlayerList().broadcastSystemMessage(message, false);
     }
 
     private static int addOption(CommandContext<CommandSourceStack> context) {
@@ -213,13 +238,14 @@ public class Command {
             return 0;
         }
 
-        if (poll.getOptions().contains(option)) {
-            sendError(source, "Option ", option, " already exists");
+        String existingOption = poll.findOption(option);
+        if (existingOption != null) {
+            sendError(source, "Option ", existingOption, " already exists");
             return 0;
         }
 
         pollManager.addOption(poll, option);
-        sendInfo(source, "Added option ", option, " to ", pollNameValue);
+        sendInfo(source, "Added option ", option, " to ", poll.getDisplayName());
         return 1;
     }
 
@@ -241,13 +267,13 @@ public class Command {
         }
 
         if (!pollManager.isActivePoll(poll)) {
-            sendError(source, "Poll ", pollNameValue, " is not active");
+            sendError(source, "Poll ", poll.getDisplayName(), " is not active");
             return 0;
         }
 
-        List<String> options = pollManager.getPollOptions(poll);
-        if (!options.contains(voteOptionValue)) {
-            sendError(source, "Option ", voteOptionValue, " not found in ", pollNameValue);
+        String option = poll.findOption(voteOptionValue);
+        if (option == null) {
+            sendError(source, "Option ", voteOptionValue, " not found in ", poll.getDisplayName());
             return 0;
         }
 
@@ -256,8 +282,8 @@ public class Command {
             return 0;
         }
 
-        pollManager.voteForPoll(poll, voteOptionValue, player);
-        sendInfo(source, "You voted for ", voteOptionValue);
+        pollManager.voteForPoll(poll, option, player);
+        sendInfo(source, "You voted for ", option);
         return 1;
     }
 
@@ -272,12 +298,12 @@ public class Command {
         }
 
         if (!pollManager.isActivePoll(poll)) {
-            sendError(source, "Poll ", pollName, " is not active");
+            sendError(source, "Poll ", poll.getDisplayName(), " is not active");
             return 0;
         }
 
         pollManager.endPoll(poll);
-        sendInfo(source, "Ended poll ", pollName);
+        sendInfo(source, "Ended poll ", poll.getDisplayName());
         sendResults(source, poll, false);
         return 1;
     }
@@ -293,12 +319,12 @@ public class Command {
         }
 
         if (pollManager.isActivePoll(poll)) {
-            sendError(source, "Poll ", pollName, " is still running, end it first");
+            sendError(source, "Poll ", poll.getDisplayName(), " is still running, end it first");
             return 0;
         }
 
         pollManager.deletePoll(poll);
-        sendInfo(source, "Deleted poll ", pollName);
+        sendInfo(source, "Deleted poll ", poll.getDisplayName());
         return 1;
     }
 
@@ -322,7 +348,7 @@ public class Command {
 
         List<Component> lines = new ArrayList<>();
         lines.add(Component.literal("━━━ ").withStyle(ChatFormatting.GOLD)
-                .append(Component.literal(poll.getName()).withStyle(ChatFormatting.YELLOW, ChatFormatting.BOLD))
+                .append(Component.literal(poll.getDisplayName()).withStyle(ChatFormatting.YELLOW, ChatFormatting.BOLD))
                 .append(Component.literal(poll.hasEnded() ? " (final)" : " (live)").withStyle(ChatFormatting.GRAY))
                 .append(Component.literal(" ━━━").withStyle(ChatFormatting.GOLD)));
 
@@ -347,6 +373,99 @@ public class Command {
                 source.sendSuccess(() -> line, false);
             }
         }
+    }
+
+    public static void notifyUnvotedPolls(ServerPlayer player) {
+        List<PollEntity> unvotedPolls = pollManager.getUnvotedActivePolls(player);
+        if (unvotedPolls.isEmpty()) {
+            return;
+        }
+
+        player.sendSystemMessage(prefix()
+                .append(Component.literal("You haven't voted on " + unvotedPolls.size()
+                        + (unvotedPolls.size() == 1 ? " poll" : " polls") + " yet. Use ").withStyle(ChatFormatting.YELLOW))
+                .append(Component.literal("/vote <poll> <option>").withStyle(ChatFormatting.AQUA))
+                .append(Component.literal(" to vote:").withStyle(ChatFormatting.YELLOW)));
+
+        for (PollEntity poll : unvotedPolls) {
+            String optionsCommand = "/vote " + StringArgumentType.escapeIfRequired(poll.getName());
+            player.sendSystemMessage(Component.literal(" • ").withStyle(ChatFormatting.DARK_GRAY)
+                    .append(Component.literal(poll.getDisplayName()).withStyle(style -> style
+                            .withColor(ChatFormatting.AQUA)
+                            .withClickEvent(new ClickEvent.RunCommand(optionsCommand))
+                            .withHoverEvent(new HoverEvent.ShowText(Component.literal("Click to see the options")))))
+                    .append(Component.literal(" (" + String.join(", ", poll.getOptions()) + ")").withStyle(ChatFormatting.GRAY)));
+        }
+    }
+
+    private static int listVotablePolls(CommandContext<CommandSourceStack> context) {
+        CommandSourceStack source = context.getSource();
+        List<String> activePolls = pollManager.getActivePollNames();
+
+        if (activePolls.isEmpty()) {
+            sendError(source, "There are no active polls right now");
+            return 0;
+        }
+
+        Player player = source.getPlayer();
+        source.sendSuccess(() -> prefix()
+                .append(Component.literal("Active polls (use ").withStyle(ChatFormatting.YELLOW))
+                .append(Component.literal("/vote <poll>").withStyle(ChatFormatting.AQUA))
+                .append(Component.literal(" to see the options):").withStyle(ChatFormatting.YELLOW)), false);
+
+        for (String pollName : activePolls) {
+            PollEntity poll = pollManager.getPollByName(pollName);
+            boolean voted = player != null && pollManager.hasVoted(poll, player);
+            String optionsCommand = "/vote " + StringArgumentType.escapeIfRequired(poll.getName());
+            source.sendSuccess(() -> Component.literal(" • ").withStyle(ChatFormatting.DARK_GRAY)
+                    .append(Component.literal(poll.getDisplayName()).withStyle(style -> style
+                            .withColor(ChatFormatting.AQUA)
+                            .withClickEvent(new ClickEvent.RunCommand(optionsCommand))
+                            .withHoverEvent(new HoverEvent.ShowText(Component.literal("Click to see the options")))))
+                    .append(voted
+                            ? Component.literal(" (voted)").withStyle(ChatFormatting.GREEN)
+                            : Component.literal(" (not voted)").withStyle(ChatFormatting.GRAY)), false);
+        }
+        return 1;
+    }
+
+    private static int listVoteOptions(CommandContext<CommandSourceStack> context) {
+        CommandSourceStack source = context.getSource();
+        String pollNameValue = StringArgumentType.getString(context, "Poll Name");
+        PollEntity poll = pollManager.getPollByName(pollNameValue);
+
+        if (poll == null) {
+            sendError(source, "Poll ", pollNameValue, " not found");
+            return 0;
+        }
+
+        if (!pollManager.isActivePoll(poll)) {
+            sendError(source, "Poll ", poll.getDisplayName(), " is not active");
+            return 0;
+        }
+
+        Player player = source.getPlayer();
+        if (player != null && pollManager.hasVoted(poll, player)) {
+            sendInfo(source, "You have already voted in ", poll.getDisplayName());
+            return 1;
+        }
+
+        source.sendSuccess(() -> prefix()
+                .append(Component.literal("Options for ").withStyle(ChatFormatting.YELLOW))
+                .append(Component.literal(poll.getDisplayName()).withStyle(ChatFormatting.AQUA))
+                .append(Component.literal(" (use ").withStyle(ChatFormatting.YELLOW))
+                .append(Component.literal("/vote " + poll.getName() + " <option>").withStyle(ChatFormatting.AQUA))
+                .append(Component.literal("):").withStyle(ChatFormatting.YELLOW)), false);
+
+        for (String option : poll.getOptions()) {
+            String voteCommand = "/vote " + StringArgumentType.escapeIfRequired(poll.getName()) + " " + option;
+            source.sendSuccess(() -> Component.literal(" • ").withStyle(ChatFormatting.DARK_GRAY)
+                    .append(Component.literal(option).withStyle(style -> style
+                            .withColor(ChatFormatting.AQUA)
+                            .withClickEvent(new ClickEvent.SuggestCommand(voteCommand))
+                            .withHoverEvent(new HoverEvent.ShowText(Component.literal("Click to vote for " + option))))), false);
+        }
+        return 1;
     }
 
     private static MutableComponent progressBar(double percent) {

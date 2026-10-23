@@ -8,12 +8,14 @@ import java.util.UUID;
 
 public class PollEntity {
     String pollName;
+    String displayName;
     List<String> pollOptions;
     List<UserVote> pollParticipants;
     boolean isPollActive;
     boolean hasEnded;
 
-    public PollEntity(String pollName) {
+    public PollEntity(String displayName, String pollName) {
+        this.displayName = displayName;
         this.pollName = pollName;
         this.pollOptions = new ArrayList<>();
         this.pollParticipants = new ArrayList<>();
@@ -23,6 +25,15 @@ public class PollEntity {
 
     public void addOption(String option) {
         pollOptions.add(option);
+    }
+
+    public String findOption(String input) {
+        for (String option : pollOptions) {
+            if (option.equalsIgnoreCase(input)) {
+                return option;
+            }
+        }
+        return null;
     }
 
     public List<String> getOptions() {
@@ -35,6 +46,10 @@ public class PollEntity {
 
     public String getName() {
         return this.pollName;
+    }
+
+    public String getDisplayName() {
+        return this.displayName;
     }
 
     public void addVote(String option, UUID uuid) {
